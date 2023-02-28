@@ -6,14 +6,15 @@ import argparse
 
 def _get_metabolomicsworkbench_filepaths(study_id):
 
+    valid_compression_extensions = [".gz", ".zip", ".7z"]
+
     try:
         dataset_list_url = "https://www.metabolomicsworkbench.org/data/show_archive_contents_json.php?STUDY_ID={}".format(
             study_id)
         mw_file_list = requests.get(dataset_list_url).json()
         workbench_df = pd.DataFrame(mw_file_list)
-        workbench_df = workbench_df['FILENAME']
-
-        workbench_df['STUDY_ID'] = study_id
+    except KeyboardInterrupt:
+        raise
     except:
         workbench_df = pd.DataFrame()
 
@@ -45,9 +46,13 @@ if __name__ == '__main__':
         for study_id in study_list:
             print("Downloading", study_id)
 
-            temp_result_df = _get_metabolomicsworkbench_filepaths(study_id=study_id)
-
-            all_results_list.append(temp_result_df)
+            try:
+                temp_result_df = _get_metabolomicsworkbench_filepaths(study_id=study_id)
+                all_results_list.append(temp_result_df)
+            except KeyboardInterrupt:
+                raise
+            except:
+                pass
 
         result_df = pd.concat(all_results_list, axis=0)
 
