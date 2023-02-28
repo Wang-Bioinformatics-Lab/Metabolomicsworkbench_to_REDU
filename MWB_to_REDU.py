@@ -699,3 +699,42 @@ if __name__ == '__main__':
 
 
     result
+
+    if args.study_id == "ALL":
+        # Getting all files
+        url = "https://www.metabolomicsworkbench.org/rest/study/study_id/ST/available"
+        studies_dict = requests.get(url).json()
+
+        study_list = []
+        for key in studies_dict.keys():
+            study_dict = studies_dict[key]
+            study_list.append(study_dict['study_id'])
+
+        study_list = list(set(study_list))
+
+        all_results_list = []
+        for study_id in study_list:
+            print("Processing ", study_id)
+
+            try:
+                MWB_to_REDU_study_wrapper(study_id=study_id,
+                                          path_to_csvs=args.path_to_csvs,
+                                          duplicate_raw_file_handling=args.duplicate_raw_file_handling,
+                                          export_to_tsv=True)
+            except KeyboardInterrupt:
+                raise
+            except:
+                pass
+
+    else:
+        MWB_to_REDU_study_wrapper(study_id=args.study_id,
+                                  path_to_csvs=args.path_to_csvs,
+                                  duplicate_raw_file_handling=args.duplicate_raw_file_handling,
+                                  export_to_tsv=True)
+
+
+
+    print("Output files written to working directory")
+
+
+
