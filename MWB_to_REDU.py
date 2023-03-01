@@ -516,7 +516,8 @@ def MWB_to_REDU_study_wrapper(study_id, path_to_csvs='translation_sheets',
 
         redu_df = MWB_to_REDU_wrapper(MWB_analysis_ID=analysis_details["analysis_id"],
                                       raw_file_name_df=raw_file_name_df,
-                                      path_to_csvs=path_to_csvs)
+                                      path_to_csvs=path_to_csvs,
+                                      Massive_ID = study_id + '|' + analysis_id)
 
         if isinstance(redu_df, pd.DataFrame):
             redu_dfs.append(redu_df)
@@ -596,6 +597,9 @@ def MWB_to_REDU_wrapper(mwTab_json=None, MWB_analysis_ID=None, raw_file_name_df=
     complete_df = complete_df[~complete_df.filename_raw.isin(duplicates.index[duplicates])]
 
     complete_df['filename'] = complete_df['filename_raw']
+
+    complete_df = complete_df[complete_df['filename'] != ''].dropna(subset=['filename'])
+
 
     complete_df['MassiveID'] = Massive_ID
     complete_df['UniqueSubjectID'] = complete_df.apply(
@@ -692,13 +696,13 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    result = MWB_to_REDU_study_wrapper(study_id = args.study_id,
-                                       path_to_csvs = args.path_to_csvs,
-                                       duplicate_raw_file_handling = args.duplicate_raw_file_handling,
-                                       export_to_tsv = True)
+    #result = MWB_to_REDU_study_wrapper(study_id = args.study_id,
+    #                                  path_to_csvs = args.path_to_csvs,
+    #                                   duplicate_raw_file_handling = args.duplicate_raw_file_handling,
+    #                                   export_to_tsv = True)
 
 
-    result
+    # result
 
     if args.study_id == "ALL":
         # Getting all files
@@ -717,14 +721,18 @@ if __name__ == '__main__':
             print("Processing ", study_id)
 
             try:
-                MWB_to_REDU_study_wrapper(study_id=study_id,
+                result = MWB_to_REDU_study_wrapper(study_id=study_id,
                                           path_to_csvs=args.path_to_csvs,
                                           duplicate_raw_file_handling=args.duplicate_raw_file_handling,
-                                          export_to_tsv=True)
+                                          export_to_tsv=False)
+                if len(result) > 1:
+                    all_results_list.append(result)
             except KeyboardInterrupt:
                 raise
             except:
                 pass
+        merged_df = pd.concat(all_results_list, ignore_index=True)
+        merged_df.to_csv('REDU_from_MWB_all.tsv', sep='\t', index=False, header=True)
 
     else:
         MWB_to_REDU_study_wrapper(study_id=args.study_id,
