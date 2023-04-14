@@ -242,7 +242,7 @@ def get_key_info_into_outer(df, key_vars, new_col):
     return df
 
 
-def create_dataframe_from_SUBJECT_SAMPLE_FACTORS(data, raw_file_name_df=None):
+def create_dataframe_from_SUBJECT_SAMPLE_FACTORS(data, raw_file_name_df=None, path_to_csvs='translation_sheets'):
     data_list = []
     for item in data:
         subject_id = item.get('Subject ID', 'NA')
@@ -290,7 +290,7 @@ def create_dataframe_from_SUBJECT_SAMPLE_FACTORS(data, raw_file_name_df=None):
     df[['SampleType_inner', 'SampleTypeSub1_inner']] = df.apply(lambda x: get_blanks(x['Value']), axis=1,
                                                                 result_type='expand')
 
-    df = translate_MWB_to_REDU_from_csv(df, case='inner')
+    df = translate_MWB_to_REDU_from_csv(df, case='inner', path_to_csvs=path_to_csvs)
     df = df.drop(columns=['Key', 'Value', 'Longitude', 'Latitude'])
     df = df.drop_duplicates().reset_index(drop=True)
 
@@ -309,7 +309,7 @@ def create_dataframe_from_SUBJECT_SAMPLE_FACTORS_collapsed_factors(data):
     return df
 
 
-def create_dataframe_outer_dict(MWB_mwTAB_dict, raw_file_name_df=None):
+def create_dataframe_outer_dict(MWB_mwTAB_dict, raw_file_name_df=None, path_to_csvs = 'translation_sheets'):
     entry = {
         'ANALYSIS_TYPE': MWB_mwTAB_dict.get('ANALYSIS', {}).get('ANALYSIS_TYPE', 'NA'),
         'PROJECT_TITLE': MWB_mwTAB_dict.get('PROJECT', {}).get('PROJECT_TITLE', 'NA'),
@@ -363,7 +363,10 @@ def create_dataframe_outer_dict(MWB_mwTAB_dict, raw_file_name_df=None):
             'SampleTypeSub1'] is None else (x['SampleType'], x['SampleTypeSub1']), axis=1, result_type='expand')
 
     df_inner_SUBJECT_SAMPLE_FACTORS = create_dataframe_from_SUBJECT_SAMPLE_FACTORS(
-        MWB_mwTAB_dict['SUBJECT_SAMPLE_FACTORS'], raw_file_name_df=raw_file_name_df)
+        MWB_mwTAB_dict['SUBJECT_SAMPLE_FACTORS'],
+        raw_file_name_df=raw_file_name_df,
+        path_to_csvs=path_to_csvs
+    )
 
     df_outer = pd.concat([df_outer] * len(df_inner_SUBJECT_SAMPLE_FACTORS), ignore_index=True)
     df_outer_inner = pd.concat([df_outer, df_inner_SUBJECT_SAMPLE_FACTORS], axis=1)
@@ -394,6 +397,8 @@ def translate_MWB_to_REDU_from_csv(MWB_table,
                                    fill_col_from=[['UBERONBodyPartName', 'SAMPLE_TYPE']],
                                    case='outer',
                                    path_to_csvs='translation_sheets'):
+
+
     if case == 'outer':
         column_and_csv_names = column_and_csv_names_outer
     elif case == 'inner':
@@ -477,7 +482,6 @@ def translate_MWB_to_REDU_by_logic(MWB_table, path_to_csvs='translation_sheets')
 
 def MWB_to_REDU_study_wrapper(study_id, path_to_csvs='translation_sheets',
                               duplicate_raw_file_handling='remove_duplicates', export_to_tsv = False):
-
 
     raw_file_name_tupple = _get_metabolomicsworkbench_files(study_id)
     raw_file_name_df = pd.DataFrame(raw_file_name_tupple[0])
@@ -582,7 +586,7 @@ def MWB_to_REDU_wrapper(mwTab_json=None, MWB_analysis_ID=None, raw_file_name_df=
         complete_df = translate_MWB_to_REDU_by_logic(
             translate_MWB_to_REDU_from_csv(
                 translate_MWB_to_REDU_from_csv(
-                    create_dataframe_outer_dict(mwTab_json, raw_file_name_df=raw_file_name_df),
+                    create_dataframe_outer_dict(mwTab_json, raw_file_name_df=raw_file_name_df, path_to_csvs=path_to_csvs),
                     path_to_csvs=path_to_csvs),
                 case='fill',
                 path_to_csvs=path_to_csvs),
@@ -725,6 +729,7 @@ if __name__ == '__main__':
                                           path_to_csvs=args.path_to_csvs,
                                           duplicate_raw_file_handling=args.duplicate_raw_file_handling,
                                           export_to_tsv=False)
+                print('Extracted information for {} samples.'.format(len(result)))
                 if len(result) > 1:
                     all_results_list.append(result)
             except KeyboardInterrupt:
