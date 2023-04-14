@@ -684,7 +684,6 @@ def MWB_to_REDU_wrapper(mwTab_json=None, MWB_analysis_ID=None, raw_file_name_df=
                            "DOIDOntologyIndex"
                            ]]
 
-
     return REDU_df
 
 
@@ -696,14 +695,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    #result = MWB_to_REDU_study_wrapper(study_id = args.study_id,
-    #                                  path_to_csvs = args.path_to_csvs,
-    #                                   duplicate_raw_file_handling = args.duplicate_raw_file_handling,
-    #                                   export_to_tsv = True)
-
-
     # result
-
     if args.study_id == "ALL":
         # Getting all files
         url = "https://www.metabolomicsworkbench.org/rest/study/study_id/ST/available"
@@ -740,9 +732,4 @@ if __name__ == '__main__':
                                   duplicate_raw_file_handling=args.duplicate_raw_file_handling,
                                   export_to_tsv=True)
 
-
-
     print("Output files written to working directory")
-
-
-
