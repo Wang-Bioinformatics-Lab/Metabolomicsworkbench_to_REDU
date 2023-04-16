@@ -26,10 +26,9 @@ def _get_metabolomicsworkbench_filepaths(study_id):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Give an MWB study ID and get a dataframe of file paths present in the study.')
+    parser = argparse.ArgumentParser(description='Give an MWB study ID and get a tsv with file paths present in the study.')
     parser.add_argument("--study_id", "-mwb_id", type=str, help='An MWB study ID such as "ST002050", ALL for every study', required=True)
-    parser.add_argument("--output_path", type=str, help='Path to the folder where the output file should be written. Default is the current working directory.',
-                        default=os.getcwd())
+    parser.add_argument("--output_path", type=str, help='Output file path to tsv file.')
 
     args = parser.parse_args()
 
@@ -62,8 +61,6 @@ if __name__ == '__main__':
     else:
         result_df = _get_metabolomicsworkbench_filepaths(study_id=args.study_id)
 
+    result_df.to_csv(args.output_path, sep='\t', index=False, header=True)
 
-    output_file = os.path.join(args.output_path, f"{args.study_id}_MWB_filepaths.tsv")
-    result_df.to_csv(output_file, sep='\t', index=False, header=True)
-
-    print(f"Output written to {output_file}")
+    print(f"Output written to {args.output_path}")
