@@ -61,8 +61,9 @@ if __name__ == '__main__':
 
     else:
         result_df = _get_metabolomicsworkbench_filepaths(study_id=args.study_id)
-    
-    output_file = os.path.join(args.output_path, f"{args.study_id}.csv")
-    result_df.to_csv(output_file, index=False)
+
+
+    output_file = os.path.join(args.output_path, f"{args.study_id}_MWB_filepaths.tsv")
+    result_df.to_csv(output_file, sep='\t', index=False, header=True)
 
     print(f"Output written to {output_file}")

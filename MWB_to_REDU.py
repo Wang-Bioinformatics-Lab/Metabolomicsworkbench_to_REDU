@@ -521,7 +521,7 @@ def MWB_to_REDU_study_wrapper(study_id, path_to_csvs='translation_sheets',
         redu_df = MWB_to_REDU_wrapper(MWB_analysis_ID=analysis_details["analysis_id"],
                                       raw_file_name_df=raw_file_name_df,
                                       path_to_csvs=path_to_csvs,
-                                      Massive_ID = study_id + '|' + analysis_id)
+                                      Massive_ID = study_id + '|' + str(analysis_details["analysis_id"]))
 
         if isinstance(redu_df, pd.DataFrame):
             redu_dfs.append(redu_df)
