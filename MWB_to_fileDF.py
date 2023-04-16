@@ -28,7 +28,7 @@ def _get_metabolomicsworkbench_filepaths(study_id):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Give an MWB study ID and get a dataframe of file paths present in the study.')
     parser.add_argument("--study_id", "-mwb_id", type=str, help='An MWB study ID such as "ST002050", ALL for every study', required=True)
-    parser.add_argument("--output_path", type=str, help='The path where the output file should be written. Default is the current working directory.',
+    parser.add_argument("--output_path", type=str, help='Path to the folder where the output file should be written. Default is the current working directory.',
                         default=os.getcwd())
 
     args = parser.parse_args()
