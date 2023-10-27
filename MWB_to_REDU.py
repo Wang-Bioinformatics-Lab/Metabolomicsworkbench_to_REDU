@@ -5,7 +5,7 @@ import re
 import numpy as np
 import requests
 from bs4 import BeautifulSoup
-
+from urllib.parse import urlparse, parse_qs
 
 def _get_metabolomicsworkbench_files(dataset_accession):
     # Lets see if it is in massive
@@ -19,16 +19,22 @@ def _get_metabolomicsworkbench_files(dataset_accession):
         dataset_list_url = "https://www.metabolomicsworkbench.org/data/show_archive_contents_json.php?STUDY_ID={}".format(
             dataset_accession)
         mw_file_list = requests.get(dataset_list_url).json()
-
+        
         acceptable_extensions = [".mzml", ".mzxml", ".cdf", ".raw", ".wiff", ".d"]
 
         mw_file_list = [file_obj for file_obj in mw_file_list if
-                        os.path.splitext(file_obj["FILENAME"])[1].lower() in acceptable_extensions]
+                        file_obj["FILENAME"].lower().endswith(tuple(acceptable_extensions))]
         workbench_df = pd.DataFrame(mw_file_list)
         workbench_df["filename"] = workbench_df["FILENAME"]
-        workbench_df["size_mb"] = workbench_df["FILESIZE"].astype(int) / 1024 / 1024
-        workbench_df["size_mb"] = workbench_df["size_mb"].astype(int)
-        workbench_df = workbench_df[["filename", "size_mb"]]
+        workbench_df["size_mb"] = (workbench_df["FILESIZE"].astype(int) / 1024 / 1024).astype(int)
+        workbench_df["URL"] = workbench_df["URL"]        
+
+        # Generate USI column
+        workbench_df["USI"] = workbench_df["URL"].apply(
+            lambda url: f"mzspec:{dataset_accession}:{parse_qs(urlparse(url).query).get('A', [None])[0]}-{parse_qs(urlparse(url).query).get('F', [None])[0]}"
+        )
+
+        workbench_df = workbench_df[["filename", "size_mb", "USI"]]
     except:
         workbench_df = pd.DataFrame()
 
@@ -486,7 +492,6 @@ def MWB_to_REDU_study_wrapper(study_id, path_to_csvs='translation_sheets',
     raw_file_name_tupple = _get_metabolomicsworkbench_files(study_id)
     raw_file_name_df = pd.DataFrame(raw_file_name_tupple[0])
 
-
     if len(raw_file_name_df) == 0:
         print('No raw data detected. Ignoring {}'.format(str(study_id)))
         return None
@@ -517,9 +522,9 @@ def MWB_to_REDU_study_wrapper(study_id, path_to_csvs='translation_sheets',
         except Exception as e:
             print('No analysis_type-key in ' + study_id)
             continue
-
+        
         redu_df = MWB_to_REDU_wrapper(MWB_analysis_ID=analysis_details["analysis_id"],
-                                      raw_file_name_df=raw_file_name_df,
+                                      raw_file_name_df=raw_file_name_df[['filename', 'filename_base']],
                                       path_to_csvs=path_to_csvs,
                                       Massive_ID = study_id + '|' + str(analysis_details["analysis_id"]))
 
@@ -555,6 +560,10 @@ def MWB_to_REDU_study_wrapper(study_id, path_to_csvs='translation_sheets',
 
     else:
         return None
+    
+    
+    raw_file_name_df['filename'] = raw_file_name_df['filename_base']
+    redu_df_final = pd.merge(redu_df_final, raw_file_name_df[['filename', 'USI']], on='filename', how='inner')
 
     if export_to_tsv == True:
         redu_df_final.to_csv('{}_REDU_from_MWB.tsv'.format(study_id), sep='\t', index=False, header=True)
