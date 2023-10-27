@@ -2,11 +2,10 @@ import os
 import pandas as pd
 import requests
 import argparse
+from urllib.parse import urlparse, parse_qs
 
 
 def _get_metabolomicsworkbench_filepaths(study_id):
-
-    valid_compression_extensions = [".gz", ".zip", ".7z"]
 
     try:
         dataset_list_url = "https://www.metabolomicsworkbench.org/data/show_archive_contents_json.php?STUDY_ID={}".format(
@@ -14,7 +13,9 @@ def _get_metabolomicsworkbench_filepaths(study_id):
         mw_file_list = requests.get(dataset_list_url).json()
         workbench_df = pd.DataFrame(mw_file_list)
 
-        # TODO: Make a USI
+        workbench_df["USI"] = workbench_df["URL"].apply(
+            lambda url: f"mzspec:{study_id}:{parse_qs(urlparse(url).query).get('A', [None])[0]}-{parse_qs(urlparse(url).query).get('F', [None])[0]}"
+        )
         
     except KeyboardInterrupt:
         raise
