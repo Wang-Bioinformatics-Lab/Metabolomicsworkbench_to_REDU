@@ -6,6 +6,28 @@ import numpy as np
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
+import json
+import time
+
+
+def handle_duplicates(ordered_pairs):
+    """
+    Append numbers to duplicate keys. This is necessary because the RAW_FILE_NAME key often appears more than once
+    in the mwTAb files
+    """
+    d = {}
+    for k, v in ordered_pairs:
+        if k in d:
+            count = 1
+            new_key = f"{k}_{count}"
+            while new_key in d:
+                count += 1
+                new_key = f"{k}_{count}"
+            d[new_key] = v
+        else:
+            d[k] = v
+    return d
+
 
 def _get_metabolomicsworkbench_files(dataset_accession):
     # Lets see if it is in massive
@@ -31,7 +53,11 @@ def _get_metabolomicsworkbench_files(dataset_accession):
 
         # Generate USI column
         workbench_df["USI"] = workbench_df["URL"].apply(
-            lambda url: f"mzspec:{dataset_accession}:{parse_qs(urlparse(url).query).get('A', [None])[0]}-{parse_qs(urlparse(url).query).get('F', [None])[0]}"
+            lambda url: "mzspec:{}:{}-{}".format(
+                dataset_accession,
+                parse_qs(urlparse(url).query).get('A', [None])[0],
+                parse_qs(urlparse(url).query).get('F', [None])[0]
+            )
         )
 
         workbench_df = workbench_df[["filename", "size_mb", "USI"]]
@@ -71,7 +97,8 @@ def get_taxonomy_id_from_name(species_name):
     if species_name is not None and species_name != "NA" and species_name != "N/A":
         try:
             response = requests.get(
-                f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=taxonomy&term={species_name}")
+                f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=taxonomy&term={species_name}"
+            )
             soup = BeautifulSoup(response.text, "xml")
             ncbi_id = soup.find("IdList").find("Id").text
             return ncbi_id
@@ -85,48 +112,61 @@ def get_taxonomy_info(ncbi_id, cell_culture_key1, cell_culture_key2):
     if ncbi_id is not None and ncbi_id != "NA":
         cell_culture_key_words = ["cell", "media", "culture"]
         try:
-            response = requests.get(
-                f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=taxonomy&id={ncbi_id}")
-            soup = BeautifulSoup(response.text, "xml")
-            classification = soup.find("Taxon").find("Lineage").text.split("; ")
+            #try to get taxa via API
+            for attempt in range(3):
+                try:
+                    response = requests.get(
+                        f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=taxonomy&id={ncbi_id}")
+                    soup = BeautifulSoup(response.text, "xml")
+                    classification = [s.lower() for s in soup.find("Taxon").find("Lineage").text.split("; ")]
+                    break
+
+                except requests.exceptions.RequestException as e:
+                    print(f"Taxonomy request failed. Retrying (attempt {attempt + 1}/3): {e}")
+                    time.sleep(2)
+
+            else:
+                # If the loop completes without breaking, raise an exception
+                raise Exception("All retries failed. Unable to fetch taxonomy data.")
+
             SampleType = None
             SampleTypeSub1 = None
 
-            if "Viridiplantae" in classification:
+            if "viridiplantae" in classification:
                 SampleType = "plant"
                 SampleTypeSub1 = "plant_NOS"
-                if "Algae" in classification or 'Rhodophyta' in classification or "Phaeophyceae" in classification:
+                if "Algae" in classification or 'rhodophyta' in classification or "phaeophyceae" in classification:
                     SampleType = "algae"
-                if "Chlorophyta" in classification or "microalgae" in classification or "microalga" in classification:
+                if "chlorophyta" in classification or "microalgae" in classification or "microalga" in classification:
                     SampleType = "microalgae"
-                if "Streptophyta" in classification:
+                if "streptophyta" in classification:
                     SampleTypeSub1 = "plant_angiospermae"
-                if "Cyanobacteria" in classification:
+                if "cyanobacteria" in classification:
                     SampleTypeSub1 = "marine_cyanobacteria_insitu"
-                if "Bacillariophyta" in classification:
+                if "bacillariophyta" in classification:
                     SampleTypeSub1 = "marine_diatom"
-            elif "Metazoa" in classification:
+            elif "metazoa" in classification:
                 SampleType = "animal"
-                if "Mammalia" in classification and any(
+                if "mammalia" in classification and any(
                         word in cell_culture_key1.lower() for word in cell_culture_key_words) or any(
                         word in cell_culture_key2.lower() for word in cell_culture_key_words):
                     SampleType = "culture_mammalian"
                     SampleTypeSub1 = "culture_mammalian"
-                if "Amphibia" in classification:
-                    if "Caudata" in classification or "Urodela" in classification or "Echinodermata" in classification:
+                if "amphibia" in classification:
+                    if "Caudata" in classification or "urodela" in classification or "echinodermata" in classification:
                         SampleTypeSub1 = "salamander"
                     else:
                         SampleTypeSub1 = "frog"
-                if "Insecta" in classification:
+                if "insecta" in classification:
                     SampleTypeSub1 = "insect"
-                if "Porifera" in classification or "Mollusca" in classification:
+                if "porifera" in classification or "mollusca" in classification:
                     SampleTypeSub1 = "marine_invertebrates"
-                if "Cnidaria" in classification:
+                if "cnidaria" in classification:
                     SampleTypeSub1 = "marine_coral"
-            elif "Fungi" in classification:
+            elif "fungi" in classification:
                 SampleType = "culture_fungal"
                 SampleTypeSub1 = "culture_fungal"
-            elif "Bacteria" in classification:
+            elif "bacteria" in classification:
                 SampleType = "culture_bacterial"
                 SampleTypeSub1 = "culture_bacterial"
             return [SampleType, SampleTypeSub1]
@@ -180,18 +220,28 @@ def get_blanks(x):
     else:
         return [None, None]
 
-
-def get_raw_file_names(x, raw_file_name_df):
+def get_raw_file_names(x, y, raw_file_name_df):
     raw_file_names = list(raw_file_name_df['filename_base'])
     raw_file_nameswo_extension = [os.path.splitext(filename)[0] for filename in raw_file_names]
 
     if x in raw_file_names:
-        return [x, raw_file_name_df[raw_file_name_df['filename_base'] == x].iloc[0]['filename']]
+        filtered_df = raw_file_name_df[raw_file_name_df['filename_base'] == x]
+        if not filtered_df.empty:
+            return [x, filtered_df.iloc[0]['filename']]
     elif x in raw_file_nameswo_extension:
-        return [x, raw_file_name_df[raw_file_name_df['filename_base'] == x].iloc[0]['filename']]
-    else:
-        return [None, None]
+        filtered_df = raw_file_name_df[raw_file_name_df['filename_base'].apply(lambda f: os.path.splitext(f)[0]) == x]
+        if not filtered_df.empty:
+            return [x, filtered_df.iloc[0]['filename']]
+    elif y in raw_file_names:
+        filtered_df = raw_file_name_df[raw_file_name_df['filename_base'] == y]
+        if not filtered_df.empty:
+            return [y, filtered_df.iloc[0]['filename']]
+    elif y in raw_file_nameswo_extension:
+        filtered_df = raw_file_name_df[raw_file_name_df['filename_base'].apply(lambda f: os.path.splitext(f)[0]) == y]
+        if not filtered_df.empty:
+            return [y, filtered_df.iloc[0]['filename']]
 
+    return [None, None]
 
 def convert_sex(x):
     x = x.lower()
@@ -247,6 +297,45 @@ def get_key_info_into_outer(df, key_vars, new_col):
         df[new_col].fillna(value='NA', inplace=True)
     return df
 
+def get_rawFile_names(df, key_vars, new_col):
+    # Create a pattern to match key_vars and their numbered versions
+    pattern = r'(' + '|'.join(key_vars) + r')(_\d+)?'
+
+    # Extract the base key name without the number
+    df['base_key'] = df['Key'].str.extract(pattern, expand=False)[0]
+
+    # Filter the DataFrame to get rows where 'base_key' is not null (matches the pattern)
+    key_df = df[df['base_key'].notnull()].copy()
+
+    # Create a new DataFrame to hold the expanded rows
+    expanded_rows = []
+
+    # Iterate over each filename group
+    for filename, group in key_df.groupby('filename'):
+        # Iterate over each base_key within the group
+        for base_key in group['base_key'].unique():
+            # Create a row for each value associated with the base_key
+            for value in group[group['base_key'] == base_key]['Value']:
+                new_row = df[df['filename'] == filename].iloc[0].to_dict()
+                new_row[new_col] = value  # Add the new column
+                expanded_rows.append(new_row)
+
+    # Create a new DataFrame from the expanded rows
+    expanded_df = pd.DataFrame(expanded_rows)
+
+    # Drop duplicate rows, if any
+    expanded_df.drop_duplicates(inplace=True)
+
+    # Handle numeric conversion for specific columns
+    if new_col in ['Latitude', 'Longitude']:
+        expanded_df[new_col] = pd.to_numeric(expanded_df[new_col], errors='coerce')
+    else:
+        expanded_df[new_col].fillna(value='NA', inplace=True)
+
+    # Drop the temporary 'base_key' column
+    expanded_df.drop('base_key', axis=1, inplace=True)
+
+    return expanded_df
 
 def create_dataframe_from_SUBJECT_SAMPLE_FACTORS(data, raw_file_name_df=None, path_to_csvs='translation_sheets'):
     data_list = []
@@ -263,14 +352,20 @@ def create_dataframe_from_SUBJECT_SAMPLE_FACTORS(data, raw_file_name_df=None, pa
     df = pd.DataFrame(data_list, columns=['SubjectIdentifierAsRecorded', 'filename', 'Key', 'Value'])
     df['Key'] = df['Key'].str.lower()
 
-    if not 'raw_file_name' in list(df['Key']):
-        df[['filename_raw', 'filename_raw_path']] = df.apply(lambda x: get_raw_file_names(x['Value'], raw_file_name_df),
+
+    #raw data name might be in the Sample ID, Factors
+    expected_raw_file_keys = ["raw_file_name",  "rawfilename", "raw_file",
+                              "datafile name", "raw files"]
+
+
+    if not any(key in df['Key'].values for key in expected_raw_file_keys):
+        df[['filename_raw', 'filename_raw_path']] = df.apply(lambda x: get_raw_file_names(x['Value'], x['filename'], raw_file_name_df),
                                                              axis=1, result_type='expand')
         df['filename_raw'] = df.groupby('filename')['filename_raw'].transform('first')
         df['filename_raw_path'] = df.groupby('filename')['filename_raw_path'].transform('first')
     else:
         raw_file_name_df = raw_file_name_df.rename(columns={'filename': 'filename_raw_path'})
-        df = get_key_info_into_outer(df, key_vars=["raw_file_name", "rawfilename", "raw_file"], new_col="filename_raw")
+        df = get_rawFile_names(df, key_vars=expected_raw_file_keys, new_col="filename_raw")
 
         if bool(set(list(df['filename_raw'])) & set(list(raw_file_name_df['filename_base']))):
             df = df.merge(raw_file_name_df, left_on='filename_raw', right_on='filename_base', how='left')
@@ -467,21 +562,25 @@ def translate_MWB_to_REDU_by_logic(MWB_table, path_to_csvs='translation_sheets')
     MWB_table['SampleTypeSub1'] = MWB_table['SampleTypeSub1'].fillna(MWB_table['tissue_vs_biofluid'])
     MWB_table = MWB_table.drop(columns=['sampletype', 'tissue_vs_biofluid'])
 
-    # remove specimen info from blanks
-    MWB_table.loc[MWB_table['SampleType'].astype(str).str.contains('blank', case=False), ['NCBITaxonomy',
-                                                                                          'SampleCollectionMethod',
-                                                                                          'SampleExtractionMethod',
-                                                                                          'InternalStandardsUsed',
-                                                                                          'SubjectIdentifierAsRecorded',
-                                                                                          'AgeInYears',
-                                                                                          'BiologicalSex',
-                                                                                          'UBERONBodyPartName',
-                                                                                          'HealthStatus',
-                                                                                          'DOIDCommonName',
-                                                                                          'ComorbidityListDOIDIndex',
-                                                                                          'Country',
-                                                                                          'HumanPopulationDensity',
-                                                                                          'LatitudeandLongitude']] = 'ML import: not available'
+
+    # List of columns to check and add if not present
+    columns_to_check = ['NCBITaxonomy', 'SampleCollectionMethod', 'SampleExtractionMethod',
+                        'InternalStandardsUsed', 'SubjectIdentifierAsRecorded', 'AgeInYears',
+                        'BiologicalSex', 'UBERONBodyPartName', 'HealthStatus', 'DOIDCommonName',
+                        'ComorbidityListDOIDIndex', 'Country', 'HumanPopulationDensity',
+                        'LatitudeandLongitude']
+
+    # Iterate through each column in the list
+    for column in columns_to_check:
+        # Check if the column exists in the DataFrame
+        if column not in MWB_table.columns:
+            # If the column does not exist, create it with all values set to 'ML import: not available'
+            MWB_table[column] = 'ML import: not available'
+        else:
+            # If the column exists, replace NaNs with 'ML import: not available'
+            MWB_table[column] = MWB_table[column].replace(np.nan, 'ML import: not available')
+
+
 
     return MWB_table
 
@@ -531,6 +630,7 @@ def MWB_to_REDU_study_wrapper(study_id, path_to_csvs='translation_sheets',
         if isinstance(redu_df, pd.DataFrame):
             redu_dfs.append(redu_df)
 
+
     if len(redu_dfs) > 0:
         redu_df_final = pd.concat(redu_dfs)
 
@@ -556,14 +656,55 @@ def MWB_to_REDU_study_wrapper(study_id, path_to_csvs='translation_sheets',
             # Remove all rows with entries occurring more than once in col1 (but not if one has 'negative' and the other has 'positive' in col2)
             redu_df_final = redu_df_final[~remove_mask]
 
-
-
     else:
         return None
-    
-    
-    raw_file_name_df['filename'] = raw_file_name_df['filename_base']
-    redu_df_final = pd.merge(redu_df_final, raw_file_name_df[['filename', 'USI']], on='filename', how='inner')
+
+    #add USI and correct filename (at this point filenames in redu table could be with our without extension)
+    raw_file_name_df['filename_match'] = raw_file_name_df['filename'].apply(lambda x: os.path.splitext(os.path.basename(x))[0])
+    raw_file_name_df['filename'] = raw_file_name_df['filename'].apply(lambda x: os.path.basename(x))
+
+    redu_df_final['filename_match'] = redu_df_final['filename'].apply(lambda x: os.path.splitext(os.path.basename(x))[0])
+    redu_df_final = redu_df_final.drop(columns=['filename'])
+
+    merged_df = pd.merge(redu_df_final, raw_file_name_df[['filename_match', 'filename', 'USI']],
+                         left_on='filename_match', right_on='filename_match', how='inner')
+
+    redu_df_final = merged_df.drop(columns=['filename_match'])
+
+    #ensure correct order of columns
+    redu_df_final = redu_df_final[["MassiveID",
+                                   "filename",
+                                   "SampleType",
+                                   "SampleTypeSub1",
+                                   "NCBITaxonomy",
+                                   "YearOfAnalysis",
+                                   "SampleCollectionMethod",
+                                   "SampleExtractionMethod",
+                                   "InternalStandardsUsed",
+                                   "MassSpectrometer",
+                                   "IonizationSourceAndPolarity",
+                                   "ChromatographyAndPhase",
+                                   "SubjectIdentifierAsRecorded",
+                                   "AgeInYears",
+                                   "BiologicalSex",
+                                   "UBERONBodyPartName",
+                                   "TermsofPosition",
+                                   "HealthStatus",
+                                   "DOIDCommonName",
+                                   "ComorbidityListDOIDIndex",
+                                   "SampleCollectionDateandTime",
+                                   "Country",
+                                   "HumanPopulationDensity",
+                                   "LatitudeandLongitude",
+                                   "DepthorAltitudeMeters",
+                                   "qiita_sample_name",
+                                   "UniqueSubjectID",
+                                   "LifeStage",
+                                   "UBERONOntologyIndex",
+                                   "DOIDOntologyIndex",
+                                   "USI"
+                                   ]]
+
 
     if export_to_tsv == True:
         redu_df_final.to_csv('{}_REDU_from_MWB.tsv'.format(study_id), sep='\t', index=False, header=True)
@@ -585,9 +726,9 @@ def MWB_to_REDU_wrapper(mwTab_json=None, MWB_analysis_ID=None, raw_file_name_df=
             "https://www.metabolomicsworkbench.org/rest/study/analysis_id/{}/mwtab".format(str(MWB_analysis_ID)))
 
         try:
-            mwTab_json = mwb_anlysis_req.json()
-        except:
-            print("Did not receive mwTab json for {}!".format(str(MWB_analysis_ID)))
+            mwTab_json = json.loads(mwb_anlysis_req.text, object_pairs_hook=handle_duplicates)
+        except json.JSONDecodeError:
+            print("Did not receive valid mwTab json for {}!".format(str(MWB_analysis_ID)))
             return None
 
     try:
@@ -702,14 +843,18 @@ def MWB_to_REDU_wrapper(mwTab_json=None, MWB_analysis_ID=None, raw_file_name_df=
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Give an MWB study ID and get a REDU table tsv.')
-    parser.add_argument("--study_id", "-mwb_id", type=str, help='An MWB study ID such as "ST002050"', required=True)
+    parser.add_argument("--study_id", "-mwb_id", type=str, help='An MWB study ID such as "ST002050". If "ALL" all study IDs are requested.', required=True)
     parser.add_argument("--path_to_csvs", "-csvs", type=str, help="Path to the translation csvs holding translations from MWB to REDU vocabulary (optional)", default="translation_sheets")
     parser.add_argument("--duplicate_raw_file_handling", "-duplStrat", type=str, help="What should be done with duplicate filenames across studies? Can be 'keep_pols_dupl' to keep cases where files can be distinguished by their polarity or 'remove_duplicates' to only keep cases where files can be assigned unambiguously (i.e. cases with only one analysis per study_id)(optional)", default='remove_duplicates')
 
     args = parser.parse_args()
 
+    study_id = args.study_id
+    path_to_csvs = args.path_to_csvs
+    duplicate_raw_file_handling = args.duplicate_raw_file_handling
+
     # result
-    if args.study_id == "ALL":
+    if study_id == "ALL":
         # Getting all files
         url = "https://www.metabolomicsworkbench.org/rest/study/study_id/ST/available"
         studies_dict = requests.get(url).json()
@@ -727,8 +872,8 @@ if __name__ == '__main__':
 
             try:
                 result = MWB_to_REDU_study_wrapper(study_id=study_id,
-                                          path_to_csvs=args.path_to_csvs,
-                                          duplicate_raw_file_handling=args.duplicate_raw_file_handling,
+                                          path_to_csvs=path_to_csvs,
+                                          duplicate_raw_file_handling=duplicate_raw_file_handling,
                                           export_to_tsv=False)
                 print('Extracted information for {} samples.'.format(len(result)))
                 if len(result) > 1:
@@ -741,9 +886,9 @@ if __name__ == '__main__':
         merged_df.to_csv('REDU_from_MWB_all.tsv', sep='\t', index=False, header=True)
 
     else:
-        MWB_to_REDU_study_wrapper(study_id=args.study_id,
-                                  path_to_csvs=args.path_to_csvs,
-                                  duplicate_raw_file_handling=args.duplicate_raw_file_handling,
+        MWB_to_REDU_study_wrapper(study_id=study_id,
+                                  path_to_csvs=path_to_csvs,
+                                  duplicate_raw_file_handling=duplicate_raw_file_handling,
                                   export_to_tsv=True)
 
     print("Output files written to working directory")
